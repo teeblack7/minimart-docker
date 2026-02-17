@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: minimart-db
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - minimart-net
+
+  backend:
+    build:
+      context: ./backend
+    container_name: minimart-backend
+    environment:
+      DATABASE_URL: postgresql://user:password@db:5432/db
+      AUTO_CREATE_TABLES: "1"
+      FLASK_ENV: development
+    depends_on:
+      - db
+    networks:
+      - minimart-net
+    ports:
+      - "5050:5000"
+
+  frontend:
+    image: nginx:alpine
+    container_name: minimart-frontend
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+    networks:
+      - minimart-net
+    ports:
+      - "8090:80"
+
+networks:
+  minimart-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+

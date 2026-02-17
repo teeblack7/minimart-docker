@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MiniMart</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f4f4f4; }
+    header { background: #111; color: #fff; padding: 15px; display:flex; justify-content:space-between; align-items:center; }
+    h1 { margin: 0; }
+    .container { padding: 20px; max-width: 1100px; margin: 0 auto; }
+    .products { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px; }
+    .card { background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    button { padding: 8px 12px; border: none; border-radius: 5px; cursor: pointer; }
+    .btn-primary { background: #007bff; color: #fff; }
+    .btn-danger { background: #dc3545; color: #fff; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    .cart, .admin { background:#fff; padding:15px; margin-top:30px; border-radius:8px; }
+    .admin { background: #fff3cd; }
+    input { padding: 8px; width: 100%; margin-bottom: 10px; box-sizing: border-box; }
+    .muted { color:#666; font-size: 0.9rem; }
+    .status { margin-top:10px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🛒 MiniMart</h1>
+  <div class="row">
+    <button class="btn-primary" onclick="loadCart()">View Cart</button>
+  </div>
+</header>
+
+<div class="container">
+  <p class="muted">Frontend (Nginx) → Backend (Flask) → Database (Postgres)</p>
+
+  <div class="status" id="status">Checking backend...</div>
+
+  <h2>Products</h2>
+  <div id="productList" class="products"></div>
+
+  <div class="cart">
+    <h2>Your Cart</h2>
+    <div id="cartItems" class="muted">Cart not loaded yet.</div>
+    <div style="margin-top:10px;">
+      <button class="btn-primary" onclick="checkout()">Checkout</button>
+    </div>
+  </div>
+
+  <div class="admin">
+    <h2>Admin: Add Product</h2>
+    <input type="text" id="name" placeholder="Product Name" />
+    <input type="number" id="price" placeholder="Price" step="0.01" />
+    <input type="text" id="description" placeholder="Description" />
+    <button class="btn-danger" onclick="addProduct()">Add Product</button>
+  </div>
+</div>
+
+<script>
+  // IMPORTANT: direct call to backend (no nginx proxy in this version)
+  const API_URL = "http://localhost:5050";
+
+  window.onload = async () => {
+    await checkBackendHealth();
+    await loadProducts();
+  };
+
+  async function checkBackendHealth() {
+    const el = document.getElementById("status");
+    try {
+      const res = await fetch(`${API_URL}/health`);
+      const data = await res.json();
+      el.innerHTML = `✅ Backend: <b>${data.status}</b>`;
+    } catch (e) {
+      el.innerHTML = `❌ Backend Offline (check backend container & port 5050)`;
+    }
+  }
+
+  async function loadProducts() {
+    const response = await fetch(`${API_URL}/api/products`);
+    const products = await response.json();
+
+    const container = document.getElementById("productList");
+    container.innerHTML = "";
+
+    if (!products.length) {
+      container.innerHTML = `<div class="card"><h3>No products yet</h3><p class="muted">Use Admin section to add one.</p></div>`;
+      return;
+    }
+
+    products.forEach(product => {
+      container.innerHTML += `
+        <div class="card">
+          <h3>${escapeHtml(product.name)}</h3>
+          <p class="muted">${escapeHtml(product.description || "")}</p>
+          <strong>£${Number(product.price).toFixed(2)}</strong><br><br>
+          <button class="btn-primary" onclick="addToCart(${product.id})">Add to Cart</button>
+        </div>
+      `;
+    });
+  }
+
+  async function addToCart(productId) {
+    await fetch(`${API_URL}/api/cart`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ product_id: productId, quantity: 1 })
+    });
+    alert("Added to cart!");
+    loadCart();
+  }
+
+  async function loadCart() {
+    const response = await fetch(`${API_URL}/api/cart`);
+    const cart = await response.json();
+
+    const cartDiv = document.getElementById("cartItems");
+    cartDiv.innerHTML = "";
+
+    if (!cart.items || cart.items.length === 0) {
+      cartDiv.innerHTML = `<p class="muted">Your cart is empty.</p>`;
+      return;
+    }
+
+    cart.items.forEach(item => {
+      cartDiv.innerHTML += `
+        <p>${escapeHtml(item.name)} × ${item.quantity} — £${Number(item.line_total).toFixed(2)}</p>
+      `;
+    });
+
+    cartDiv.innerHTML += `<h3>Total: £${Number(cart.total).toFixed(2)}</h3>`;
+  }
+
+  async function checkout() {
+    const res = await fetch(`${API_URL}/api/checkout`, { method: "POST" });
+    const data = await res.json();
+
+    if (!res.ok) {
+      alert(data.message || "Checkout failed");
+      return;
+    }
+
+    alert(`${data.message}\nOrder ID: ${data.order_id}\nTotal: £${Number(data.total).toFixed(2)}`);
+    loadCart();
+  }
+
+  async function addProduct() {
+    const name = document.getElementById("name").value.trim();
+    const price = document.getElementById("price").value;
+    const description = document.getElementById("description").value.trim();
+
+    if (!name || !price) {
+      alert("Name and price are required");
+      return;
+    }
+
+    const res = await fetch(`${API_URL}/api/products`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, price, description })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || "Failed to add product");
+      return;
+    }
+
+    alert("Product added!");
+    document.getElementById("name").value = "";
+    document.getElementById("price").value = "";
+    document.getElementById("description").value = "";
+    loadProducts();
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, s => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[s]));
+  }
+</script>
+
+</body>
+</html>
+
